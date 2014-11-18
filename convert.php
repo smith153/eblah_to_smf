@@ -292,10 +292,10 @@ function loadSettings()
 	if (!$command_line && !$found)
 	{
 		template_convert_above();
-		return doStep0('Unable to find the settings for ' . $convert_data['name'] . '.  Please double check the path and try again.');
+		return doStep0('1Unable to find the settings for ' . $convert_data['name'] . '.  Please double check the path and try again.');
 	}
 	elseif (!$command_line && !$found)
-		return print_error('Unable to find the settings for ' . $convert_data['name'] . '.  Please double check the path and try again.', true);
+		return print_error('2Unable to find the settings for ' . $convert_data['name'] . '.  Please double check the path and try again.', true);
 
 	// Any parameters to speak of?
 	if (!empty($convert_data['parameters']) && !empty($_SESSION['convert_parameters']))
@@ -2823,7 +2823,7 @@ function alterDatabase($table, $type, $parms, $no_prefix = false)
 
 		// Since SMF 1.1 used camel case in its ids. Lets try to detect that.
 		// Best we can do is only do this for mysql users. Sorry mates.
-		if ($smcFunc['db_title'] == 'MySQL' && $parms != strtolower($parms) && strtolower(substr(parms, 0, 2)) != 'id')
+		if ($smcFunc['db_title'] == 'MySQL' && $parms != strtolower($parms) && strtolower(substr($parms, 0, 2)) != 'id')
 		{
 			$count = count($parms);
 			$i = 0;

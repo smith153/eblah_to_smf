@@ -14,10 +14,10 @@
 // !!! Polls.
 
 $convert_data = array(
-	'name' => 'E-Blah Platinum 9',
+	'name' => 'E-Blah 10.x.x',
 	'version' => 'SMF 2.0',
 	'flatfile' => true,
-	'settings' => array('/Settings.pl'),
+	'settings' => array('/home/website/lindsay.ath.cx/eblah_old/forum/Settings.pl'),
 	'parameters' => array(
 		array(
 			'id' => 'db_purge',
@@ -58,7 +58,8 @@ if (empty($preparsing))
 		global $eblah;
 
 		if (isset($_SESSION['convert_parameters']['db_purge']))
-			$_SESSION['purge'] = !empty($_SESSION['convert_parameters']['db_purge']);
+			$_SESSION['purge'] = 1;
+			//$_SESSION['purge'] = !empty($_SESSION['convert_parameters']['db_purge']);
 
 		if (!isset($_POST['path_from']) || !file_exists($_POST['path_from'] . '/Settings.pl'))
 			return;
@@ -87,7 +88,6 @@ if (empty($preparsing))
 		global $to_prefix, $eblah;
 
 		echo 'Converting membergroups...';
-
 		$knownGroups = array();
 		$extraGroups = array();
 		$newbie = false;
@@ -156,17 +156,21 @@ if (empty($preparsing))
 
 		if (!empty($knownGroups))
 		{
-			foreach ($knownGroups as $i => $v)
-				$knownGroups[$i] = array($i, substr('$v[group_name]', 0, 80), substr(@$v['online_color'], 0, 20), 0, '', @$v['temp_members']);
+			foreach ($knownGroups as $i => $v){
+				if(!isset($v['temp_members'])){
+					$v['temp_members'] = '';
+				}
+				$knownGroups[$i] = array($i, substr($v['group_name'], 0, 80), substr(@$v['online_color'], 0, 20), -1, '', $v['temp_members']);
+			}
 
 			convert_insert('membergroups', array('id_group', 'group_name', 'online_color', 'min_posts', 'stars', 'temp_members'), $knownGroups, 'replace');
 		}
 
 		if (!empty($extraGroups))
 		{
-			foreach ($extraGroups as $i => $v)
-				$extraGroups[$i] = array($v['temp_id'], substr($v['group_name'], 0, 80), substr(@$v['online_color'], 0, 20), (isset($v['min_posts']) ? $v['min_posts'] : -1), '', @$v['temp_members']);
-
+			foreach ($extraGroups as $i => $v){
+				$extraGroups[$i] = array($v['temp_id'], substr(@$v['group_name'], 0, 80), substr(@$v['online_color'], 0, 20), (isset($v['min_posts']) ? $v['min_posts'] : -1), '', @$v['temp_members']);
+			}
 			convert_insert('membergroups', array('temp_id', 'group_name', 'online_color', 'min_posts', 'stars', 'temp_members'), $extraGroups, 'replace');
 		}
 	}
@@ -184,15 +188,11 @@ if (empty($preparsing))
 		}
 		if ($_GET['substep'] == 0)
 		{
-			// Get rid of the primary key... we have to resort anyway.
-			alterDatabase('members', 'remove index', 'primary');
-			alterDatabase('members', 'change column', array(
-				'old_name' => 'id_member',
-				'name' => 'id_member',
-				'type' => 'mediumint',
-				'size' => 8,
-				'default' => 0,
-			));
+              // Get rid of the primary key... we have to resort anyway.
+			convert_query("ALTER TABLE {$to_prefix}members
+				DROP PRIMARY KEY,                                                                    
+				CHANGE COLUMN id_member id_member mediumint(8) unsigned NOT NULL default 0");
+          
 		}
 
 		pastTime(0);
@@ -224,6 +224,7 @@ if (empty($preparsing))
 		$dir = dir($eblah['members']);
 		$block = array();
 		$text_columns = array(
+			'id_member' => 12,
 			'member_name' => 80,
 			'lngfile' => 255,
 			'real_name' => 255,
@@ -236,16 +237,16 @@ if (empty($preparsing))
 			'website_title' => 255,
 			'website_url' => 255,
 			'location' => 255,
-			'icq' => 255,
-			'aim' => 16,
-			'yim' => 32,
-			'msn' => 255,
+			'ICQ' => 255,
+			'AIM' => 16,
+			'YIM' => 32,
+			'MSN' => 255,
 			'time_format' => 80,
 			'signature' => 255,
 			'avatar' => 255,
 			'usertitle' => 255,
-			'member_ip' => 255,
-			'member_ip2' => 255,
+			'member_iP' => 255,
+			'member_iP2' => 255,
 			'secret_question' => 255,
 			'secret_answer' => 64,
 			'validation_code' => 10,
@@ -264,39 +265,51 @@ if (empty($preparsing))
 
 			$userData = file($eblah['members'] . '/' . $entry);
 			foreach ($userData as $i => $v)
-				$userData[$i] = rtrim($userData[$i]);
+			{
+				$temp = explode(' = |', $userData[$i]);
+
+				$temp[1] = trim($temp[1]);
+				if (substr($temp[1], -1) == '|')
+					$temp[1] = substr($temp[1], 0, -1);
+				$userData[trim($temp[0])] = $temp[1];
+				
+			}
 			if (count($userData) < 3)
 				continue;
 
 			$name = substr($entry, 0, -4);
+			$name_id = $name;
+			if (is_numeric($name) && !empty($userData['sn']))
+				$name = $userData['sn'];
 
 			$row = array(
+				'id_member' => $name_id,
 				'member_name' => substr(htmlspecialchars($name), 0, 80),
-				'id_group' => isset($groups[$name]) ? $groups[$name] : 0,
-				'additional_groups' => isset($addGroups[$name]) ? $addGroups[$name] : '',
-				'passwd' => empty($eblah['yabbconver']) && strlen($userData[0]) == 32 ? md5($userData[0]) : substr($userData[0], 0, 64),
-				'real_name' => @$userData[1] == 'Guest' || @$userData[1] == '' ? htmlspecialchars($name) : htmlspecialchars($userData[1]),
-				'email_address' => htmlspecialchars(@$userData[2]),
-				'posts' => (int) @$userData[3],
-				'usertitle' => htmlspecialchars(@$userData[4]),
-				'personal_text' => htmlspecialchars(@$userData[6]),
-				'gender' => @$userData[7] <= 2 ? (int) @$userData[7] : 0,
-				'icq' => htmlspecialchars(@$userData[8]),
-				'aim' => substr(htmlspecialchars(@$userData[9]), 0, 16),
-				'msn' => htmlspecialchars(@$userData[10]),
-				'signature' => str_replace(array('&lt;br&gt;'), array('<br />'), htmlspecialchars(@$userData[11], ENT_QUOTES)),
-				'hide_email' => (int) @$userData[12],
-				'date_registered' => @$userData[14],
-				'time_offset' => (float) @$userData[15],
-				'birthdate' => @$userData[16] == '' || strtotime(@$userData[16]) == 0 ? '0001-01-01' : strftime('%Y-%m-%d', strtotime($userData[16])),
-				'show_online' => empty($userData[18]),
-				'website_title' => htmlspecialchars(@$userData[19]),
-				'website_url' => htmlspecialchars(@$userData[20]),
-				'location' => htmlspecialchars(@$userData[21]),
-				'notify_announcements' => empty($userData[25]),
-				'yim' => substr(htmlspecialchars(@$userData[27]), 0, 32),
+				'id_group' => isset($groups[$name_id]) ? $groups[$name_id] : 0,
+				'additional_groups' => isset($addGroups[$name_id]) ? $addGroups[$name_id] : '',
+				'passwd' => $userData['password'],
+				'real_name' => @$userData[1] == 'Guest' || @$userData['sn'] == '' ? htmlspecialchars($name) : htmlspecialchars($userData['sn']),
+				'email_address' => htmlspecialchars(@$userData['email']),
+				'posts' => (int) @$userData['posts'],
+				'usertitle' => '', //htmlspecialchars(@$userData['']),
+				'personal_text' => htmlspecialchars(@$userData['personaltxt']),
+				'gender' => @$userData['sex'] <= 2 ? (int) @$userData['sex'] : 0,
+				'ICQ' => htmlspecialchars(@$userData['icq']),
+				'AIM' => substr(htmlspecialchars(@$userData['aim']), 0, 16),
+				'MSN' => htmlspecialchars(@$userData['msn']),
+				'signature' => str_replace(array('&lt;br&gt;'), array('<br />'), htmlspecialchars(@$userData['sig'], ENT_QUOTES)),
+				'hide_email' => (int) @$userData['hidemail'],
+				'date_registered' => @$userData['registered'],
+				'time_offset' => (float) @$userData['timezone'],
+				'birthdate' => @$userData['dob'] == '' || strtotime(@$userData['dob']) == 0 ? '0001-01-01' : strftime('%Y-%m-%d', strtotime($userData['dob'])),
+				'show_online' => 1,
+				'website_title' => htmlspecialchars(@$userData['sitename']),
+				'website_url' => htmlspecialchars(@$userData['siteurl']),
+				'location' => htmlspecialchars(@$userData['location']),
+				'notify_announcements' => 1,
+				'YIM' => substr(htmlspecialchars(@$userData['yim']), 0, 32),
 			);
-
+			//var_dump($row);
 			if ($row['birthdate'] === '0001-01-01' && parse_time(@$userData[16], false) != 0)
 				$row['birthdate'] = strftime('%Y-%m-%d', parse_time(@$userData[16], false));
 
@@ -338,20 +351,13 @@ if (empty($preparsing))
 				ORDER BY id_member, date_registered");
 			pastTime(-2);
 		}
+
 		if ($_GET['substep'] >= -2)
 		{
-			alterDatabase('members', 'change column', array(
-				'old_name' => 'id_member',
-				'name' => 'id_member',
-				'type' => 'mediumint',
-				'size' => 8,
-				'default' => 0,
-				'auto' => true,
-			));
-			alterDatabase('members', 'add index', array(
-				'type' => 'primary',
-				'columns' => array('id_temp'),
-			));
+
+			convert_query("ALTER TABLE {$to_prefix}members
+                  CHANGE COLUMN id_member id_member mediumint(8) unsigned NOT NULL default NULL auto_increment PRIMARY KEY");
+
 
 			pastTime(-3);
 		}
@@ -376,7 +382,8 @@ if (empty($preparsing))
 		$settings = array();
 		$settings['news'] = addslashes(strtr(implode('', file($eblah['prefs'] . '/News.txt')), array("\r" => '')));
 		$settings['requireAgreement'] = !empty($eblah['showreg']) ? 1 : 0;
-		$settings['registration_method'] = !empty($eblah['creg']) ? 3 : (!empty($eblah['vradmin']) ? ($eblah['vradmin'] == 2 ? 2 : 1) : 0);
+		$settings['registration_method'] = 1;
+		//$settings['registration_method'] = !empty($eblah['creg']) ? 3 : (!empty($eblah['vradmin']) ? ($eblah['vradmin'] == 2 ? 2 : 1) : 0);
 		$settings['mail_type'] = empty($eblah['mailuse']) || $eblah['mailuse'] != 2 ? 0 : 1;
 		$settings['smtp_host'] = isset($eblah['mailhost']) ? $eblah['mailhost'] : '';
 		$settings['smtp_username'] = isset($eblah['mailusername']) ? $eblah['mailusername'] : '';
@@ -421,14 +428,15 @@ if (empty($preparsing))
 
 		$setString = array();
 		foreach ($settings as $var => $val)
-			$setString[] = array($var, substr('$val', 0, 65534));
-
+			$setString[] = array($var, substr($val, 0, 65534));
 		convert_insert('settings', array('variable', 'value'), $setString, 'replace');
 	}
 
 	function convertStep4()
 	{
 		global $to_prefix, $eblah;
+
+		echo 'Converting personal messages...';
 
 		if ($_GET['substep'] == 0 && !empty($_SESSION['purge']))
 		{
@@ -439,30 +447,24 @@ if (empty($preparsing))
 		}
 		if ($_GET['substep'] == 0)
 		{
-			alterDatabase('personal_messages', 'remove column', 'temp_to_name');
-			alterDatabase('personal_messages', 'remove index', 'primary');
-			alterDatabase('personal_messages', 'change column', array(
-				'old_name' => 'id_member',
-				'name' => 'id_member',
-				'type' => 'mediumint',
-				'size' => 8,
-				'default' => 0,
-			));
-			alterDatabase('personal_messages', 'add column', array(
-				'name' => 'temp_to_name',
-				'type' => 'tinytext',
-				'size' => 10,
-				'default' => 0,
-			));
+              convert_query("
+                  ALTER TABLE {$to_prefix}personal_messages
+                  DROP COLUMN temp_to_name", true);
+              convert_query("
+				ALTER TABLE {$to_prefix}personal_messages
+				CHANGE COLUMN id_pm id_pm mediumint(8) unsigned NOT NULL default 0,
+				DROP PRIMARY KEY,
+				ADD temp_to_name tinytext");                                                          
 		}
 
-		echo 'Converting personal messages...';
 
 		$names = array();
 
 		$file_n = 0;
 		$dir = dir($eblah['members']);
 		$block = array();
+		
+
 		while ($entry = $dir->read())
 		{
 			if ($_GET['substep'] < 0)
@@ -473,10 +475,12 @@ if (empty($preparsing))
 				continue;
 
 			$userData = file($eblah['members'] . '/' . $entry);
+			$name_id = substr($entry, 0, -3);
+
 			foreach ($userData as $i => $v)
 			{
 				$userData[$i] = explode('|', rtrim($userData[$i]));
-				if ($userData[$i][0] == 2)
+				if ($userData[$i][0] == 2) //2=sent so skip?
 					continue;
 
 				$row = array(
@@ -484,51 +488,30 @@ if (empty($preparsing))
 					'subject' => substr($userData[$i][2], 0, 255),
 					'from_name' => substr(htmlspecialchars($userData[$i][3]), 0, 255),
 					'body' => substr(strtr($userData[$i][4], array('<br>' => '<br />')), 0, 65534),
-					'id_member_from' => '0',
+					'id_member_from' => substr(htmlspecialchars($userData[$i][3]), 0, 255),
 					'deleted_by_sender' => '1',
-					'temp_to_name' => htmlspecialchars(substr($entry, 0, -4)),
+					'temp_to_name' => $name_id,
 				);
-
-				$names[strtolower(addslashes($row['from_name']))][] = &$row['id_member_from'];
+				//look up sender name from id
+				$result = convert_query("SELECT id_member, member_name FROM {$to_prefix}members where id_member = ".$row['from_name']);
+				$row['from_name'] = convert_fetch_assoc($result)['member_name'];
+				convert_free_result($result);
 
 				$block[] = addslashes_recursive($row);
 			}
 
 			if (count($block) > 100)
 			{
-				$result = convert_query("
-					SELECT id_member, member_name
-					FROM {$to_prefix}members
-					WHERE member_name IN ('" . implode("', '", array_keys($names)) . "')
-					LIMIT " . count($names));
-				while ($row = convert_fetch_assoc($result))
-				{
-					foreach ($names[strtolower(addslashes($row['member_name']))] as $k => $v)
-						$names[strtolower(addslashes($row['member_name']))][$k] = $row['id_member'];
-				}
-				convert_free_result($result);
-				$names = array();
 
 				doBlock('personal_messages', $block);
 				pastTime($file_n);
 			}
+
 		}
 		$dir->close();
 
 		if (!empty($block))
 		{
-			$result = convert_query("
-				SELECT id_member, member_name
-				FROM {$to_prefix}members
-				WHERE member_name IN ('" . implode("', '", array_keys($names)) . "')
-				LIMIT " . count($names));
-			while ($row = convert_fetch_assoc($result))
-			{
-				foreach ($names[strtolower(addslashes($row['member_name']))] as $k => $v)
-					$names[strtolower(addslashes($row['member_name']))][$k] = $row['id_member'];
-			}
-			convert_free_result($result);
-			$names = array();
 
 			doBlock('personal_messages', $block);
 		}
@@ -546,17 +529,9 @@ if (empty($preparsing))
 		}
 		if ($_GET['substep'] >= -2)
 		{
-			alterDatabase('personal_messages', 'change column', array(
-				'old_name' => 'id_pm',
-				'name' => 'id_pm',
-				'type' => 'int',
-				'size' => 10,
-			));
-			alterDatabase('personal_messages', 'add index', array(
-				'type' => 'primary',
-				'columns' => array('id_temp'),
-			));
-
+			convert_query("ALTER TABLE {$to_prefix}personal_messages
+                  CHANGE COLUMN id_pm id_pm int unsigned NOT NULL default NULL auto_increment PRIMARY KEY");
+			convert_query("UPDATE {$to_prefix}personal_messages SET id_pm_head = id_pm");
 			pastTime(-3);
 		}
 		if ($_GET['substep'] >= -3)
@@ -565,10 +540,9 @@ if (empty($preparsing))
 			convert_query("
 				INSERT INTO {$to_prefix}pm_recipients
 					(id_pm, id_member, labels)
-				SELECT pm.id_pm, mem.id_member, '' AS labels
+				SELECT pm.id_pm, pm.temp_to_name,'-1' AS labels
 				FROM {$to_prefix}personal_messages AS pm
-					INNER JOIN {$to_prefix}members AS mem ON (mem.member_name = pm.temp_to_name)
-				WHERE pm.temp_to_name != ''");
+					WHERE pm.temp_to_name != ''");
 
 			pastTime(-4);
 		}
@@ -651,7 +625,7 @@ if (empty($preparsing))
 				'temp_id' => trim($data[1]),
 			);
 
-			$cat_rows[] = addslashes_recursive($row);
+			$cat_rows[] = $row;
 
 			$boards = explode('/', $data[3]);
 			foreach ($boards as $board)
@@ -672,12 +646,13 @@ if (empty($preparsing))
 				'description' => substr($data[1], 0, 255),
 				'board_order' => $i + 1,
 				'temp_cat_id' => isset($board_cats[trim($data[0])]) ? $board_cats[trim($data[0])] : 1,
-				'count_posts' => !empty($data[9]),
+				//'count_posts' => !empty($data[9]),
+				'count_posts' => 0,
 				'temp_id' => $data[0],
 				'member_groups' => '-1,0',
 			);
 
-			$board_rows[] = addslashes_recursive($row);
+			$board_rows[] = $row;
 
 			$mods = explode('|', $data[2]);
 			foreach ($mods as $mod)
@@ -731,6 +706,8 @@ if (empty($preparsing))
 	{
 		global $to_prefix, $eblah;
 
+		echo 'Converting mark read data...';
+
 		if ($_GET['substep'] == 0 && !empty($_SESSION['purge']))
 		{
 			convert_query("
@@ -752,7 +729,12 @@ if (empty($preparsing))
 			));
 		}
 
-		echo 'Converting mark read data...';
+		alterDatabase('log_topics', 'add index', array(
+			'name' => 'temp_id_idx',
+			'columns' => array('temp_id'),
+		));
+
+
 
 		$result = convert_query("
 			SELECT id_board, temp_id
@@ -849,6 +831,8 @@ if (empty($preparsing))
 	{
 		global $to_prefix, $eblah;
 
+		echo 'Converting topics (part 1)...';
+
 		if ($_GET['substep'] == 0 && !empty($_SESSION['purge']))
 		{
 			convert_query("
@@ -858,17 +842,12 @@ if (empty($preparsing))
 		{
 			alterDatabase('topics', 'remove column', 'temp_id');
 			alterDatabase('topics', 'remove column', 'temp_subject');
-			alterDatabase('topics', 'remove index', 'primary');
-			alterDatabase('topics', 'remove index', 'lastMessage');
-			alterDatabase('topics', 'remove index', 'firstMessage');
+			alterDatabase('topics', 'remove index', 'last_message');
+			alterDatabase('topics', 'remove index', 'first_message');
 			alterDatabase('topics', 'remove index', 'poll');
-			alterDatabase('topics', 'change column', array(
-				'old_name' => 'id_topic',
-				'name' => 'id_tpic',
-				'type' => 'mediumint',
-				'size' => 8,
-				'default' => 0,
-			));
+			convert_query("ALTER TABLE {$to_prefix}topics
+				DROP PRIMARY KEY,
+				CHANGE COLUMN id_topic id_topic mediumint(8) unsigned NOT NULL default 0");
 			alterDatabase('topics', 'add column', array(
 				'name' => 'temp_id',
 				'type' => 'int',
@@ -882,7 +861,6 @@ if (empty($preparsing))
 			));
 		}
 
-		echo 'Converting topics (part 1)...';
 
 		pastTime(0);
 
@@ -930,7 +908,7 @@ if (empty($preparsing))
 
 				$block[] = array(
 					'temp_id' => $temp_id,
-					'temp_subject' => addslashes($topicInfo[1]),
+					'temp_subject' => $topicInfo[1],
 					'id_board' => (int) $id_board,
 					'is_sticky' => (int) in_array($temp_id, $stickies),
 					'locked' => (int) $topicInfo[6],
@@ -944,6 +922,7 @@ if (empty($preparsing))
 				}
 			}
 		}
+
 
 		doBlock('topics', $block);
 
@@ -968,18 +947,8 @@ if (empty($preparsing))
 		}
 		if ($_GET['substep'] >= -3)
 		{
-			alterDatabase('topics', 'change column', array(
-				'old_name' => 'id_topic',
-				'name' => 'id_topic',
-				'type' => 'mediumint',
-				'size' => 8,
-				'default' => 0,
-				'auto' => true,
-			));
-			alterDatabase('topics', 'add index', array(
-				'type' => 'primary',
-				'columns' => array('id_topic'),
-			));
+			convert_query("ALTER TABLE {$to_prefix}topics
+				CHANGE COLUMN id_topic id_topic mediumint(8) unsigned NOT NULL default NULL auto_increment PRIMARY KEY");
 
 			pastTime(-4);
 		}
@@ -1031,7 +1000,7 @@ if (empty($preparsing))
 		alterDatabase('log_topics', 'remove column', 'temp_id');
 		alterDatabase('log_topics', 'add index', array(
 			'type' => 'primary',
-			'columns' => array('id_topic', 'id_member'),
+			'columns' => array('id_member','id_topic'),
 		));
 	}
 
@@ -1086,6 +1055,8 @@ if (empty($preparsing))
 	{
 		global $to_prefix, $eblah;
 
+		echo 'Converting posts (part 1 - this may take some time)...';
+
 		if ($_GET['substep'] == 0 && !empty($_SESSION['purge']))
 		{
 			convert_query("
@@ -1096,21 +1067,18 @@ if (empty($preparsing))
 		if ($_GET['substep'] == 0)
 		{
 			// Remove the auto_incrementing so we know we get the right order.
-			alterDatabase('messages', 'remove index', 'primary');
 			alterDatabase('messages', 'remove index', 'topic');
 			alterDatabase('messages', 'remove index', 'id_board');
-			alterDatabase('messages', 'change column', array(
-				'old_name' => 'id_msg',
-				'name' => 'id_msg',
-				'type' => 'int',
-				'size' => 10,
-				'default' => 0,
-			));
+			alterDatabase('messages', 'remove index', 'id_member');
+
+			convert_query("ALTER TABLE {$to_prefix}messages
+				DROP PRIMARY KEY,
+				CHANGE COLUMN id_msg id_msg int(10) unsigned NOT NULL default 0");
 
 			if (isset($eblah['uploaddir']))
 			{
 				alterDatabase('messages', 'remove column', 'temp_filename');
-				alterDatabase('personal_messages', 'add column', array(
+				alterDatabase('messages', 'add column', array(
 					'name' => 'temp_filename',
 					'type' => 'tinytext',
 					'default' => '',
@@ -1118,7 +1086,6 @@ if (empty($preparsing))
 			}
 		}
 
-		echo 'Converting posts (part 1 - this may take some time)...';
 
 		$block = array();
 		while (true)
@@ -1152,18 +1119,37 @@ if (empty($preparsing))
 						$message[$k] = rtrim($v);
 
 					$message[9] = explode('/', $message[9]);
+					$message[9][0] = preg_replace("/[^0-9]/", "", $message[9][0]); #num only for mod time
+
+					//convert [quote=id] to [quote author=name] in body
+					if(preg_match('~\[quote=(\d+)\]~', $message[1], $matches)){
+
+						$quote_id_member = $matches[1];
+
+						$rs = convert_query("SELECT member_name FROM {$to_prefix}members 
+							where id_member = $quote_id_member");
+						$rs_name =  convert_fetch_assoc($rs);
+						convert_free_result($rs);
+						$new_quote = "[quote author=".$rs_name['member_name']."]";
+						$body = preg_replace('~\[quote=\d+\]~', $new_quote, $message[1]);
+					}
+					else{
+						$body = $message[1];
+					}
+
+
 
 					$row = array(
 						'id_topic' => $topic['id_topic'],
 						'id_board' => $topic['id_board'],
 						'subject' => substr(($msgn == 0 ? '' : 'Re: ') . $topic['temp_subject'], 0, 255),
-						'poster_name' => substr($message[0], 0, 255),
-						'body' => substr(preg_replace('~\[quote author=.+? link=.+?\]~i', '[quote]', strtr($message[1], array('<br>' => '<br />'))), 0, 65534),
+						'poster_name' => substr($message[0], 0, 255), //update this later with real name
+						'body' => $body,
 						'poster_ip' => substr($message[2], 0, 255),
 						'poster_email' => substr(htmlspecialchars($message[3]), 0, 255),
 						'poster_time' => $message[4],
-						'smileys_enabled' => empty($message[5]),
-						'modified_time' => $message[9][0],
+						'smileys_enabled' => $message[5] == 0? 1:0,
+						'modified_time' => empty($message[9][0])? 0 : $message[9][0],
 						'modified_name' => isset($message[9][1]) ? substr(htmlspecialchars($message[9][1]), 0, 255) : '',
 						'icon' => 'xx',
 					);
@@ -1171,10 +1157,11 @@ if (empty($preparsing))
 					if (isset($eblah['uploaddir']))
 						$row['temp_filename'] = $message[8];
 
-					$block[] = addslashes_recursive($row);
+					$block[] = $row;
 
-					if (count($block) > 100)
+					if (count($block) > 100){
 						doBlock('messages', $block);
+					}
 				}
 
 				doBlock('messages', $block);
@@ -1194,6 +1181,8 @@ if (empty($preparsing))
 	{
 		global $to_prefix, $eblah;
 
+		echo 'Converting posts (part 2)...';
+
 		if ($_GET['substep'] == 0)
 		{
 			convert_query("
@@ -1201,7 +1190,6 @@ if (empty($preparsing))
 				ORDER BY poster_time");
 		}
 
-		echo 'Converting posts (part 2)...';
 
 		$request = convert_query("
 			SELECT @msg := IFNULL(MAX(id_msg), 0)
@@ -1223,18 +1211,11 @@ if (empty($preparsing))
 				break;
 		}
 
-		alterDatabase('messages', 'change column', array(
-			'old_name' => 'id_msg',
-			'name' => 'id_msg',
-			'type' => 'int',
-			'size' => 10,
-			'auto' => true,
-			'default' => 0,
-		));
-		alterDatabase('messages', 'add index', array(
-			'type' => 'primary',
-			'columns' => array('id_msg'),
-		));
+
+		convert_query("ALTER TABLE {$to_prefix}messages
+			CHANGE COLUMN id_msg id_msg int(10) unsigned NOT NULL default NULL auto_increment PRIMARY KEY");
+
+
 	}
 
 	function convertStep12()
@@ -1248,36 +1229,109 @@ if (empty($preparsing))
 			pastTime($_GET['substep']);
 
 			$result = convert_query("
-				SELECT m.id_msg, mem.id_member
+				SELECT m.id_msg, mem.id_member, mem.member_name
 				FROM {$to_prefix}messages AS m
-					INNER JOIN {$to_prefix}members AS mem ON (mem.member_name = m.poster_name)
+					INNER JOIN {$to_prefix}members AS mem ON (mem.id_member  = m.poster_name)
 				WHERE m.id_member = 0
 				LIMIT 150");
 			while ($row = convert_fetch_assoc($result))
 			{
 				convert_query("
 					UPDATE {$to_prefix}messages
-					SET id_member = $row[id_member]
+					SET poster_name = '$row[member_name]',id_member = $row[id_member]
 					WHERE id_msg = $row[id_msg]
 					LIMIT 1");
 			}
 
 			$_GET['substep'] += 150;
-			if (convert_num_rows($result) < 150)
+
+			if (convert_num_rows($result) < 150){
 				break;
+			}
 
 			convert_free_result($result);
 		}
+
+		
+	}
+	function convertStep13()
+	{
+		global $to_prefix, $eblah;
+
+		echo 'Converting posts (part 4)...';
+
+		//lets get names for deleted members now
+		if(!file_exists($eblah['members'] . '/' . 'OldMembers.txt')){
+			echo "Couldn't find OldMembers.txt";
+			return;
+		}
+		$OldMembers = file($eblah['members'] . '/' . 'OldMembers.txt');
+		$OldMember = array();
+		foreach ($OldMembers as $i => $v)
+		{
+			list($user_id, $user_name) = explode('|',$OldMembers[$i]);
+			$user_id = trim($user_id);
+			$user_name = addslashes(trim($user_name));
+			$OldMember[$user_id] = $user_name;
+			if(empty($user_id) || empty($user_name)){
+				echo "something is empty: id: $user_id name: $user_name line: {$OldMembers[$i]}";
+			}
+		}
+		unset($OldMembers);
+
+		alterDatabase('messages', 'add index', array(
+			'name' => 'poster_name_idx',
+			'columns' => array('poster_name','id_member'),
+		));
+
+
+		while (true)
+		{
+			pastTime($_GET['substep']);
+
+			$result = convert_query("SELECT poster_name 
+				FROM {$to_prefix}messages
+				WHERE id_member = 0
+				LIMIT 150");
+			while ($row = convert_fetch_assoc($result))
+			{
+				$user_id = $row['poster_name'];
+				if(!array_key_exists($user_id,$OldMember)){
+					echo "No user found with id $user_id";
+					continue;
+				}
+				convert_query("UPDATE {$to_prefix}messages
+					SET id_member = $user_id, poster_name = '{$OldMember[$user_id]}'
+					WHERE poster_name = $user_id AND id_member = 0");	
+			}
+
+			$_GET['substep'] += 150;
+
+			if (convert_num_rows($result) < 150){
+				convert_free_result($result);
+				break;
+			}
+
+			convert_free_result($result);
+
+		}
+		alterDatabase('messages', 'remove index', 'poster_name_idx');
+		convert_query("
+			ALTER TABLE {$to_prefix}messages
+			ORDER BY poster_time");
+
 	}
 
-	function convertStep13()
+	function convertStep14()
 	{
 		global $to_prefix, $eblah;
 
 		echo 'Converting attachments (if the mod is installed)...';
 
-		if (!isset($eblah['uploaddir']))
+		if (!isset($eblah['uploaddir'])){
+			echo "uploaddir not defined, not running Convert attachments";
 			return;
+		}
 
 		$result = convert_query("
 			SELECT value
@@ -1288,8 +1342,10 @@ if (empty($preparsing))
 		convert_free_result($result);
 
 		// Danger, Will Robinson!
-		if ($eblah['uploaddir'] == $attachmentUploadDir)
+		if ($eblah['uploaddir'] == $attachmentUploadDir){
+			echo "eblah uploaddir and smf attachmentUploadDir are the same! Not converting.";
 			return;
+		}
 
 		$result = convert_query("
 			SELECT MAX(id_attach)
@@ -1313,26 +1369,46 @@ if (empty($preparsing))
 			{
 				$files = explode('/', $row['temp_filename']);
 				foreach ($files as $file)
-					if (trim($file) != '' && file_exists($eblah['uploaddir'] . '/' . $file))
+				{
+					$file = trim($file);
+					if ($file != '' && file_exists($eblah['uploaddir'] . '/' . $file))
 					{
+
 						$size = filesize($eblah['uploaddir'] . '/' . $file);
 						$filename = getLegacyAttachmentFilename($file, $id_attach);
+						$img_info = getimagesize($eblah['uploaddir'] . '/' . $file);
+						$h = $img_info[0];
+						$w = $img_info[1];
+						$mime_type = $img_info['mime'];
+						$fileext = strtolower(strrpos($file, '.') !== false ? substr($file, strrpos($file, '.') + 1) : '');
+						//$file_hash = getAttachmentFilename($file, false, null, true);
 
-						if (strlen($file) <= 255 && copy($eblah['uploaddir'] . '/' . $file, $attachmentUploadDir . '/' . $filename))
+						if (strlen($file) <= 255 && copy($eblah['uploaddir'] . '/' . $file , $filename))
 						{
-							$attachments[] = array($id_attach, $size, 0, $file, $file_hash, $row['id_msg']);
+							$attachments[] = array($id_attach, $size, 0, $file, $row['id_msg'], $h, $w, $mime_type, $fileext);
 
 							$id_attach++;
 						}
+						else{
+							echo "Couldn't copy: {$eblah['uploaddir']}/$file to $filename";
+						}
 					}
+					else{
+						if($file != ''){
+							echo $eblah['uploaddir'] . '/' . $file . " doesn't exist, so skipping!";
+						}
+					}
+				}
 			}
 
-			if (!empty($attachments))
-				convert_insert('attachments', array('id_attach' => 'int', 'size' => 'int', 'downloads' => 'int', 'filename' => 'string', 'file_hash' => 'string', 'id_msg' => 'int', 'width' => 'int', 'height' => 'int'), $attachments, 'insert');
+		if (!empty($attachments))
+				convert_insert('attachments', array('id_attach', 'size', 'downloads', 'filename', 'id_msg', 'width', 'height', 'mime_type', 'fileext'), $attachments, 'replace');
 
 			$_GET['substep'] += 100;
-			if (convert_num_rows($result) < 100)
+			if (convert_num_rows($result) < 100){
+				convert_free_result($result);
 				break;
+			}
 
 			convert_free_result($result);
 		}
@@ -1340,7 +1416,7 @@ if (empty($preparsing))
 		alterDatabase('messages', 'remove column', 'temp_filename');
 	}
 
-	function convertStep14()
+	function convertStep15()
 	{
 		global $to_prefix, $eblah;
 
@@ -1390,15 +1466,16 @@ if (empty($preparsing))
 		}
 		if ($_GET['substep'] <= 4)
 		{
-			alterDatabase('topics', 'add index', array(
-				'type' => 'unique',
-				'name' => 'id_board',
-				'columns' => array('id_board', 'id_msg'),
-			));
+			//alterDatabase('topics', 'add index', array(
+			//	'type' => 'unique',
+			//	'name' => 'id_board',
+			//	'columns' => array('id_board', 'id_msg'),
+			//));
+			//what??
 		}
 	}
 
-	function convertStep15()
+	function convertStep16()
 	{
 		global $to_prefix, $eblah;
 
@@ -1462,7 +1539,7 @@ if (empty($preparsing))
 			alterDatabase('topics', 'add index', array(
 				'type' => 'unique',
 				'name' => 'first_message',
-				'columns' => array('id_poll', 'id_topic'),
+				'columns' => array('id_first_msg','id_board'),
 			));
 		}
 	}
@@ -1502,6 +1579,7 @@ if (empty($preparsing))
 			foreach ($block as $i => $row)
 				$block_names[$row['member_name']] = $i;
 
+
 			$request = convert_query("
 				SELECT member_name
 				FROM {$to_prefix}members
@@ -1509,6 +1587,7 @@ if (empty($preparsing))
 				LIMIT " . count($block_names));
 			while ($row = convert_fetch_assoc($request))
 				unset($block[$block_names[$row['member_name']]]);
+
 			convert_free_result($request);
 
 			if (empty($block))
@@ -1521,7 +1600,7 @@ if (empty($preparsing))
 		foreach ($block as $row)
 			$insert_block[] = '\'' . implode('\', \'', $row) . '\'';
 
-		convert_insert($table, array_keys($block[0]), $block, 'insert', $no_prefix);
+		convert_insert($table, array_keys($block[0]), $block, 'insert');
 
 		$block = array();
 	}
