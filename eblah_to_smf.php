@@ -17,7 +17,7 @@ $convert_data = array(
 	'name' => 'E-Blah 10.x.x',
 	'version' => 'SMF 2.0',
 	'flatfile' => true,
-	'settings' => array('/home/website/lindsay.ath.cx/eblah_old/forum/Settings.pl'),
+	'settings' => array('/home/website/eblah_old/forum/Settings.pl'),
 	'parameters' => array(
 		array(
 			'id' => 'db_purge',
